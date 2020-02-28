@@ -69,7 +69,7 @@ def finish_episode():
         returns.insert(0, R)
 
     returns = torch.tensor(returns)
-    # returns = (returns - returns.mean()) / (returns.std() + eps)
+    returns = (returns - returns.mean()) / (returns.std() + eps)
 
     for (log_prob, state_value), R in zip(saved_actions, returns):
         advantage = R - state_value.item()
