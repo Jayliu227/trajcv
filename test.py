@@ -12,7 +12,7 @@ from torch.distributions import Categorical
 SavedAction = namedtuple('SavedAction', ['log_prob', 'value'])
 
 seed = 227
-env = gym.make('LunarLander-v2')
+env = gym.make('CartPole-v0')
 env.seed(seed)
 torch.manual_seed(seed)
 
@@ -21,9 +21,9 @@ class Policy(nn.Module):
     def __init__(self):
         super(Policy, self).__init__()
 
-        self.affine1 = nn.Linear(8, 128)
+        self.affine1 = nn.Linear(4, 128)
 
-        self.action_head = nn.Linear(128, 4)
+        self.action_head = nn.Linear(128, 2)
         self.value_head = nn.Linear(128, 1)
 
         self.saved_actions = []
@@ -39,7 +39,7 @@ class Policy(nn.Module):
 
 
 model = Policy()
-optimizer = optim.Adam(model.parameters(), lr=3e-2)
+optimizer = optim.Adam(model.parameters(), lr=1e-3)
 eps = np.finfo(np.float32).eps.item()
 gamma = 0.99
 log_interval = 10
