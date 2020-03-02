@@ -10,7 +10,7 @@ from algorithms.a2c import A2C
 from algorithms.traj import TrajCVPolicy
 from vis import Plotter
 
-env_name = 'LunarLander-v2'
+env_name = 'CartPole-v0'
 algorithm_name = 'trajcv'
 
 env = gym.make(env_name)

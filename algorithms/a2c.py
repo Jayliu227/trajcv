@@ -14,11 +14,11 @@ class Policy(nn.Module):
     def __init__(self, state_dim, action_dim):
         super(Policy, self).__init__()
 
-        self.affine1 = nn.Linear(state_dim, 64)
-        self.affine2 = nn.Linear(64, 128)
+        self.affine1 = nn.Linear(state_dim, 32)
+        self.affine2 = nn.Linear(32, 64)
 
-        self.action_head = nn.Linear(128, action_dim)
-        self.value_head = nn.Linear(128, 1)
+        self.action_head = nn.Linear(64, action_dim)
+        self.value_head = nn.Linear(64, 1)
 
     def forward(self, x):
         x = F.relu(self.affine1(x))
@@ -40,7 +40,7 @@ class A2C:
 
         self.saved_actions = []
         self.saved_rewards = []
-        self.saved_states = []
+        # self.saved_states = []
 
     def select_action(self, s):
         s = torch.from_numpy(s).float()
@@ -57,7 +57,8 @@ class A2C:
         self.saved_rewards.append(r)
 
     def save_state_action(self, s, a):
-        self.saved_states.append(torch.FloatTensor(s))
+        # self.saved_states.append(torch.FloatTensor(s))
+        pass
 
     def finish_episode(self):
         R = 0
@@ -97,4 +98,4 @@ class A2C:
 
         del self.saved_actions[:]
         del self.saved_rewards[:]
-        del self.saved_states[:]
+        # del self.saved_states[:]

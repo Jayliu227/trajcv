@@ -11,9 +11,9 @@ class QFunc(nn.Module):
     def __init__(self, state_dim):
         """ single action for each state """
         super(QFunc, self).__init__()
-        self.affine1 = nn.Linear(state_dim + 1, 64)
-        self.affine2 = nn.Linear(64, 128)
-        self.affine3 = nn.Linear(128, 1)
+        self.affine1 = nn.Linear(state_dim + 1, 32)
+        self.affine2 = nn.Linear(32, 64)
+        self.affine3 = nn.Linear(64, 1)
 
     def forward(self, s, a):
         """ s and a are of batch form (b, d) """
@@ -27,9 +27,9 @@ class QFunc(nn.Module):
 class Policy(nn.Module):
     def __init__(self, state_dim, action_dim):
         super(Policy, self).__init__()
-        self.affine1 = nn.Linear(state_dim, 64)
-        self.affine2 = nn.Linear(64, 128)
-        self.affine3 = nn.Linear(128, action_dim)
+        self.affine1 = nn.Linear(state_dim, 32)
+        self.affine2 = nn.Linear(32, 64)
+        self.affine3 = nn.Linear(64, action_dim)
 
     def forward(self, s):
         s = F.relu(self.affine1(s))
@@ -38,10 +38,17 @@ class Policy(nn.Module):
         return s
 
 
+class PQNet(nn.Module):
+    """ NN that combines the policy and the q network """
+    def __init__(self, state_dim, action_dim):
+        super(PQNet, self).__init__()
+        pass
+
+
 class TrajCVPolicy:
     def __init__(self, state_dim, action_dim, gamma=0.99, lr=1e-3):
         self.gamma = gamma
-        self.q_update_epochs = 100
+        self.q_update_epochs = 200
 
         self.policy = Policy(state_dim, action_dim)
         self.Q = QFunc(state_dim)
