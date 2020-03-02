@@ -1,4 +1,3 @@
-import gym
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -6,16 +5,15 @@ import torch.optim as optim
 import numpy as np
 
 from torch.distributions import Categorical
-from itertools import count
 
 
 class QFunc(nn.Module):
     def __init__(self, state_dim):
         """ single action for each state """
         super(QFunc, self).__init__()
-        self.affine1 = nn.Linear(state_dim + 1, 32)
-        self.affine2 = nn.Linear(32, 64)
-        self.affine3 = nn.Linear(64, 1)
+        self.affine1 = nn.Linear(state_dim + 1, 64)
+        self.affine2 = nn.Linear(64, 128)
+        self.affine3 = nn.Linear(128, 1)
 
     def forward(self, s, a):
         """ s and a are of batch form (b, d) """
@@ -43,17 +41,20 @@ class Policy(nn.Module):
 class TrajCVPolicy:
     def __init__(self, state_dim, action_dim, gamma=0.99, lr=1e-3):
         self.gamma = gamma
+        self.q_update_epochs = 100
 
         self.policy = Policy(state_dim, action_dim)
         self.Q = QFunc(state_dim)
 
         self.policy_optimizer = optim.Adam(self.policy.parameters(), lr=lr)
-        self.Q_optimizer = optim.Adam(self.Q.parameters(), lr=lr)
+        self.Q_optimizer = optim.Adam(self.Q.parameters(), lr=lr * 3)
 
         self.saved_logprobs = []
         self.saved_qvalues = []
         self.saved_expectedqs = []
         self.saved_rewards = []
+        self.saved_actions = []
+        self.saved_states = []
 
         self.action_dim = action_dim
 
@@ -74,7 +75,7 @@ class TrajCVPolicy:
         # save the expected qvalue
         self.saved_expectedqs.append(expected_qvalue)
         # save the qvalue of the action we take
-        self.saved_qvalues.append(all_qvalues[a.item()])
+        self.saved_qvalues.append(all_qvalues[a.item()].squeeze(-1))
         # save the log probability of the action
         self.saved_logprobs.append(m.log_prob(a))
 
@@ -82,6 +83,10 @@ class TrajCVPolicy:
 
     def save_reward(self, r):
         self.saved_rewards.append(r)
+
+    def save_state_action(self, s, a):
+        self.saved_actions.append(torch.FloatTensor([a]))
+        self.saved_states.append(torch.FloatTensor(s))
 
     def finish_episode(self):
         """ called at the end of each trajectory """
@@ -117,54 +122,20 @@ class TrajCVPolicy:
         self.policy_optimizer.step()
         self.Q_optimizer.step()
 
+        # update Q several more times
+        prev_actions = torch.stack(self.saved_actions)
+        prev_states = torch.stack(self.saved_states)
+        for i in range(self.q_update_epochs):
+            q_values = self.Q.forward(prev_states, prev_actions).squeeze(-1)
+
+            self.Q_optimizer.zero_grad()
+            loss = F.mse_loss(q_values, returns)
+            loss.mean().backward()
+            self.Q_optimizer.step()
+
         del self.saved_logprobs[:]
         del self.saved_qvalues[:]
         del self.saved_expectedqs[:]
         del self.saved_rewards[:]
-
-
-def main():
-    seed = 227
-    env = gym.make('CartPole-v0')
-    env.seed(seed)
-    torch.manual_seed(seed)
-    log_interval = 10
-
-    trajcv = TrajCVPolicy(4, 2)
-
-    running_reward = 10
-
-    for i_episode in count(1):
-
-        state = env.reset()
-        ep_reward = 0
-
-        for t in range(1, 10000):
-
-            action = trajcv.select_action(state)
-
-            state, reward, done, _ = env.step(action)
-
-            trajcv.save_reward(reward)
-
-            ep_reward += reward
-
-            if done:
-                break
-
-        running_reward = 0.05 * ep_reward + (1 - 0.05) * running_reward
-
-        trajcv.finish_episode()
-
-        if i_episode % log_interval == 0:
-            print('Episode {}\tLast reward: {:.2f}\tAverage reward: {:.2f}'.format(
-                i_episode, ep_reward, running_reward))
-
-        if running_reward > env.spec.reward_threshold:
-            print("Solved! Running reward is now {} and "
-                  "the last episode runs to {} time steps!".format(running_reward, t))
-            break
-
-
-if __name__ == '__main__':
-    main()
+        del self.saved_actions[:]
+        del self.saved_states[:]

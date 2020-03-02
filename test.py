@@ -6,105 +6,51 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 from itertools import count
-from collections import namedtuple
-from torch.distributions import Categorical
+from algorithms.a2c import A2C
+from algorithms.traj import TrajCVPolicy
+from vis import Plotter
 
-SavedAction = namedtuple('SavedAction', ['log_prob', 'value'])
+env_name = 'LunarLander-v2'
+algorithm_name = 'trajcv'
 
-seed = 227
-env = gym.make('CartPole-v0')
+env = gym.make(env_name)
+seed = 1234
 env.seed(seed)
 torch.manual_seed(seed)
-
-
-class Policy(nn.Module):
-    def __init__(self):
-        super(Policy, self).__init__()
-
-        self.affine1 = nn.Linear(4, 128)
-
-        self.action_head = nn.Linear(128, 2)
-        self.value_head = nn.Linear(128, 1)
-
-        self.saved_actions = []
-        self.saved_rewards = []
-
-    def forward(self, x):
-        x = F.relu(self.affine1(x))
-
-        action_probs = F.softmax(self.action_head(x), dim=-1)
-        state_values = self.value_head(x)
-
-        return action_probs, state_values
-
-
-model = Policy()
-optimizer = optim.Adam(model.parameters(), lr=1e-3)
-eps = np.finfo(np.float32).eps.item()
-gamma = 0.99
 log_interval = 10
 
+state_dim = env.observation_space.shape[0]
+action_dim = env.action_space.n
 
-def select_action(state):
-    state = torch.from_numpy(state).float()
-    action_prob, state_value = model.forward(state)
+print('Env Name: %s | Seed: %d | State_dim: %d | Action_dim: %d | Algo: %s '
+      % (env_name, seed, state_dim, action_dim, algorithm_name))
 
-    m = Categorical(action_prob)
-    action = m.sample()
+if algorithm_name == 'a2c':
+    model = A2C(state_dim, action_dim)
+elif algorithm_name == 'trajcv':
+    model = TrajCVPolicy(state_dim, action_dim)
+else:
+    raise NotImplementedError('Not such algorithm.')
 
-    model.saved_actions.append(SavedAction(m.log_prob(action), state_value))
-
-    return action.item()
-
-
-def finish_episode():
-    R = 0
-    saved_actions = model.saved_actions
-    policy_losses = []
-    value_losses = []
-    returns = []
-
-    for r in model.saved_rewards[::-1]:
-        R = r + gamma * R
-        returns.insert(0, R)
-
-    returns = torch.tensor(returns)
-    returns = (returns - returns.mean()) / (returns.std() + eps)
-
-    for (log_prob, state_value), R in zip(saved_actions, returns):
-        advantage = R - state_value.item()
-
-        policy_losses.append(-log_prob * advantage)
-
-        value_losses.append(F.smooth_l1_loss(state_value, torch.tensor([R])))
-
-    optimizer.zero_grad()
-
-    loss = torch.stack(policy_losses).sum() + torch.stack(value_losses).sum()
-
-    loss.backward()
-
-    optimizer.step()
-
-    del model.saved_actions[:]
-    del model.saved_rewards[:]
+plotter = Plotter(algorithm_name + ' plot', log_interval)
 
 
 def main():
     running_reward = 10
 
-    for i_episode in count(1):
+    for i_episode in range(1000):
 
         state = env.reset()
         ep_reward = 0
 
         for t in range(1, 10000):
 
-            action = select_action(state)
+            action = model.select_action(state)
 
             state, reward, done, _ = env.step(action)
 
-            model.saved_rewards.append(reward)
+            model.save_reward(reward)
+            model.save_state_action(state, action)
 
             ep_reward += reward
 
@@ -113,7 +59,8 @@ def main():
 
         running_reward = 0.05 * ep_reward + (1 - 0.05) * running_reward
 
-        finish_episode()
+        model.finish_episode()
+        plotter.add_pair(ep_reward, running_reward)
 
         if i_episode % log_interval == 0:
             print('Episode {}\tLast reward: {:.2f}\tAverage reward: {:.2f}'.format(
@@ -123,6 +70,8 @@ def main():
             print("Solved! Running reward is now {} and "
                   "the last episode runs to {} time steps!".format(running_reward, t))
             break
+
+    plotter.show()
 
 
 if __name__ == '__main__':
