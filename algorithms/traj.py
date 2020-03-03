@@ -40,9 +40,33 @@ class Policy(nn.Module):
 
 class PQNet(nn.Module):
     """ NN that combines the policy and the q network """
+
     def __init__(self, state_dim, action_dim):
         super(PQNet, self).__init__()
-        pass
+
+        self.common_layer = nn.Sequential(
+            nn.Linear(state_dim, 32),
+            nn.ReLU(32),
+            nn.Linear(32, 64),
+            nn.ReLU(64)
+        )
+
+        self.policy_head = nn.Linear(64, action_dim)
+        self.q_head = nn.Linear(64 + 1, 1)
+
+    def forward(self):
+        raise NotImplementedError()
+
+    def calc_q(self, s, a):
+        s = self.common_layer(s)
+        x = torch.cat((s, a), 1)
+        q_values = self.q_head(x)
+        return q_values
+
+    def calc_policy(self, s):
+        s = self.common_layer(s)
+        action_probs = F.softmax(self.policy_head(s), dim=-1)
+        return action_probs
 
 
 class TrajCVPolicy:
