@@ -11,10 +11,10 @@ from algorithms.traj import TrajCVPolicy
 from vis import Plotter
 
 env_name = 'CartPole-v0'
-algorithm_name = 'trajcv'
+algorithm_name = 'a2c'
 
 env = gym.make(env_name)
-seed = 1234
+seed = 23456
 env.seed(seed)
 torch.manual_seed(seed)
 log_interval = 10
@@ -69,7 +69,7 @@ def main():
         if running_reward > env.spec.reward_threshold:
             print("Solved! Running reward is now {} and "
                   "the last episode runs to {} time steps!".format(running_reward, t))
-            break
+            # break
 
     plotter.show()
 

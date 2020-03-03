@@ -72,13 +72,18 @@ class PQNet(nn.Module):
 class TrajCVPolicy:
     def __init__(self, state_dim, action_dim, gamma=0.99, lr=1e-3):
         self.gamma = gamma
-        self.q_update_epochs = 200
+        self.q_update_epochs = 10
 
-        self.policy = Policy(state_dim, action_dim)
-        self.Q = QFunc(state_dim)
+        # self.policy = Policy(state_dim, action_dim)
+        # self.Q = QFunc(state_dim)
 
-        self.policy_optimizer = optim.Adam(self.policy.parameters(), lr=lr)
-        self.Q_optimizer = optim.Adam(self.Q.parameters(), lr=lr * 3)
+        # self.policy_optimizer = optim.Adam(self.policy.parameters(), lr=lr)
+        # self.Q_optimizer = optim.Adam(self.Q.parameters(), lr=lr * 3)
+        self.epsilon_greedy_threshold = 15
+        self.epsilon_anneal = 0.02
+
+        self.net = PQNet(state_dim, action_dim)
+        self.optimizer = optim.Adam(self.net.parameters(), lr=lr)
 
         self.saved_logprobs = []
         self.saved_qvalues = []
@@ -92,15 +97,23 @@ class TrajCVPolicy:
     def select_action(self, s):
         """ take in the raw representation of state from the env and return an action """
         s = torch.from_numpy(s).float()
-        action_prob = self.policy.forward(s)
+        # action_prob = self.policy.forward(s)
+        action_prob = self.net.calc_policy(s)
 
         m = Categorical(action_prob)
-        a = m.sample()
+        # epsilon greedy
+        if np.random.randint(100) < self.epsilon_greedy_threshold:
+            a = torch.IntTensor([np.random.randint(self.action_dim)]).squeeze(-1)
+        else:
+            a = m.sample()
+
+        self.epsilon_greedy_threshold = max(0, self.epsilon_greedy_threshold - self.epsilon_anneal)
 
         all_states = torch.stack([s] * self.action_dim)
         all_actions = torch.FloatTensor([[i] for i in range(self.action_dim)])
 
-        all_qvalues = self.Q.forward(all_states, all_actions)
+        # all_qvalues = self.Q.forward(all_states, all_actions)
+        all_qvalues = self.net.calc_q(all_states, all_actions)
         expected_qvalue = all_qvalues.mean()
 
         # save the expected qvalue
@@ -144,25 +157,32 @@ class TrajCVPolicy:
             policy_losses.append(-g * log_prob)
             q_losses.append(F.smooth_l1_loss(q, r))
 
-        self.policy_optimizer.zero_grad()
-        self.Q_optimizer.zero_grad()
+        # self.policy_optimizer.zero_grad()
+        # self.Q_optimizer.zero_grad()
+        #
+        # loss = torch.stack(policy_losses).sum() + torch.stack(q_losses).sum()
+        # loss.backward()
+        #
+        # self.policy_optimizer.step()
+        # self.Q_optimizer.step()
+
+        self.optimizer.zero_grad()
 
         loss = torch.stack(policy_losses).sum() + torch.stack(q_losses).sum()
         loss.backward()
 
-        self.policy_optimizer.step()
-        self.Q_optimizer.step()
+        self.optimizer.step()
 
         # update Q several more times
         prev_actions = torch.stack(self.saved_actions)
         prev_states = torch.stack(self.saved_states)
         for i in range(self.q_update_epochs):
-            q_values = self.Q.forward(prev_states, prev_actions).squeeze(-1)
+            q_values = self.net.calc_q(prev_states, prev_actions).squeeze(-1)
 
-            self.Q_optimizer.zero_grad()
+            self.optimizer.zero_grad()
             loss = F.mse_loss(q_values, returns)
             loss.mean().backward()
-            self.Q_optimizer.step()
+            self.optimizer.step()
 
         del self.saved_logprobs[:]
         del self.saved_qvalues[:]
