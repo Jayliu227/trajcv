@@ -6,96 +6,15 @@ import numpy as np
 
 from torch.distributions import Categorical
 from .gae import calc_gae
-
-
-class QFunc(nn.Module):
-    def __init__(self, state_dim):
-        """ single action for each state """
-        super(QFunc, self).__init__()
-        self.affine1 = nn.Linear(state_dim + 1, 32)
-        self.affine2 = nn.Linear(32, 64)
-        self.affine3 = nn.Linear(64, 1)
-
-    def forward(self, s, a):
-        """ s and a are of batch form (b, d) """
-        x = torch.cat((s, a), 1)
-        x = F.relu(self.affine1(x))
-        x = F.relu(self.affine2(x))
-        x = self.affine3(x)
-        return x
-
-
-class Policy(nn.Module):
-    def __init__(self, state_dim, action_dim):
-        super(Policy, self).__init__()
-        self.affine1 = nn.Linear(state_dim, 32)
-        self.affine2 = nn.Linear(32, 64)
-        self.affine3 = nn.Linear(64, action_dim)
-
-    def forward(self, s):
-        s = F.relu(self.affine1(s))
-        s = F.relu(self.affine2(s))
-        s = F.softmax(self.affine3(s), dim=-1)
-        return s
-
-
-class PVNet(nn.Module):
-    def __init__(self, state_dim, action_dim):
-        super(PVNet, self).__init__()
-
-        self.affine1 = nn.Linear(state_dim, 64)
-        self.affine2 = nn.Linear(64, 128)
-
-        self.action_head = nn.Linear(128, action_dim)
-        self.value_head = nn.Linear(128, 1)
-
-    def forward(self, x):
-        x = F.relu(self.affine1(x))
-        x = F.relu(self.affine2(x))
-
-        action_probs = F.softmax(self.action_head(x), dim=-1)
-        state_values = self.value_head(x)
-
-        return action_probs, state_values
-
-
-class PQNet(nn.Module):
-    """ NN that combines the policy and the q network """
-
-    def __init__(self, state_dim, action_dim):
-        super(PQNet, self).__init__()
-
-        self.common_layer = nn.Sequential(
-            nn.Linear(state_dim, 32),
-            nn.ReLU(32),
-            nn.Linear(32, 64),
-            nn.ReLU(64)
-        )
-
-        self.policy_head = nn.Linear(64, action_dim)
-        self.q_head = nn.Linear(64 + 1, 1)
-
-    def forward(self):
-        raise NotImplementedError()
-
-    def calc_q(self, s, a):
-        s = self.common_layer(s)
-        x = torch.cat((s, a), 1)
-        q_values = self.q_head(x)
-        return q_values
-
-    def calc_policy(self, s):
-        s = self.common_layer(s)
-        action_probs = F.softmax(self.policy_head(s), dim=-1)
-        return action_probs
+from .models import PVNet
 
 
 class TrajCVPolicy:
     def __init__(self, state_dim, action_dim, gamma=0.99, lr=1e-3):
         self.gamma = gamma
-        self.q_update_epochs = 10
+        self.v_update_epochs = 20
 
-        self.epsilon_greedy_threshold = 15
+        self.epsilon_greedy_threshold = 10
         self.epsilon_anneal = 0.01
 
         self.net = PVNet(state_dim, action_dim)
@@ -104,6 +23,7 @@ class TrajCVPolicy:
         self.saved_logprobs = []
         self.saved_rewards = []
         self.saved_state_values = []
+        self.saved_states = []
 
         self.action_dim = action_dim
 
@@ -115,11 +35,11 @@ class TrajCVPolicy:
         m = Categorical(action_prob)
 
         # epsilon greedy
-        # if np.random.randint(100) < self.epsilon_greedy_threshold:
-        #     a = torch.IntTensor([np.random.randint(self.action_dim)]).squeeze(-1)
-        # else:
-        #     a = m.sample()
-        a = m.sample()
+        if np.random.randint(100) < self.epsilon_greedy_threshold:
+            a = torch.IntTensor([np.random.randint(self.action_dim)]).squeeze(-1)
+        else:
+            a = m.sample()
+        # a = m.sample()
 
         # save the v
         self.saved_state_values.append(state_value)
@@ -132,11 +52,10 @@ class TrajCVPolicy:
         self.saved_rewards.append(r)
 
     def save_state_action(self, s, a, done):
+        s = torch.from_numpy(s).float()
+        self.saved_states.append(s)
         if done:
-            # to save the v value for the last state
-            # s = torch.from_numpy(s).float()
-            # _, state_value = self.net.forward(s)
-            # self.saved_state_values.append(state_value)
+            # to save the v value for the last state as 0
             self.saved_state_values.append(torch.FloatTensor([0]))
 
     def finish_episode(self):
@@ -155,7 +74,7 @@ class TrajCVPolicy:
 
         # find advantage
         advantages = calc_gae(torch.FloatTensor(self.saved_rewards), torch.cat(self.saved_state_values))
-        # advantages = (advantages - advantages.mean()) / (advantages.std() + np.finfo(np.float32).eps.item())
+        advantages = (advantages - advantages.mean()) / (advantages.std() + np.finfo(np.float32).eps.item())
 
         for i in reversed(range(1, len(advantages))):
             advantages[i - 1] += advantages[i]
@@ -168,14 +87,25 @@ class TrajCVPolicy:
 
         self.optimizer.zero_grad()
 
-        loss = torch.stack(policy_losses).sum() + torch.stack(v_losses).sum()
-        loss.backward()
+        policy_loss = torch.stack(policy_losses).sum()
+        v_loss = torch.stack(v_losses).sum()
+        (policy_loss + v_loss).backward()
 
         self.optimizer.step()
+
+        # optimize the v function for more steps
+        old_states = torch.stack(self.saved_states)
+        for i in range(self.v_update_epochs):
+            _, state_values = self.net.forward(old_states)
+            loss = F.mse_loss(returns, state_values.squeeze(-1))
+            self.optimizer.zero_grad()
+            loss.mean().backward()
+            self.optimizer.step()
 
         del self.saved_logprobs[:]
         del self.saved_rewards[:]
         del self.saved_state_values[:]
+        del self.saved_states[:]
 
         self.epsilon_greedy_threshold = max(0, self.epsilon_greedy_threshold - self.epsilon_anneal)
 

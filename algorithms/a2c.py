@@ -7,27 +7,9 @@ import torch.optim as optim
 from collections import namedtuple
 from torch.distributions import Categorical
 
+from .models import PVNet
+
 SavedAction = namedtuple('SavedAction', ['log_prob', 'value'])
-
-
-class Policy(nn.Module):
-    def __init__(self, state_dim, action_dim):
-        super(Policy, self).__init__()
-
-        self.affine1 = nn.Linear(state_dim, 64)
-        self.affine2 = nn.Linear(64, 128)
-
-        self.action_head = nn.Linear(128, action_dim)
-        self.value_head = nn.Linear(128, 1)
-
-    def forward(self, x):
-        x = F.relu(self.affine1(x))
-        x = F.relu(self.affine2(x))
-
-        action_probs = F.softmax(self.action_head(x), dim=-1)
-        state_values = self.value_head(x)
-
-        return action_probs, state_values
 
 
 class A2C:
@@ -35,7 +17,7 @@ class A2C:
         self.gamma = gamma
         self.q_update_epochs = 100
 
-        self.policy = Policy(state_dim, action_dim)
+        self.policy = PVNet(state_dim, action_dim)
         self.policy_optimizer = optim.Adam(self.policy.parameters(), lr=lr)
 
         self.saved_actions = []
@@ -57,8 +39,8 @@ class A2C:
         self.saved_rewards.append(r)
 
     def save_state_action(self, s, a, done):
-        # self.saved_states.append(torch.FloatTensor(s))
-        pass
+        s = torch.from_numpy(s).float()
+        self.saved_states.append(torch.FloatTensor(s))
 
     def finish_episode(self):
         R = 0
@@ -87,15 +69,15 @@ class A2C:
 
         self.policy_optimizer.step()
 
-        # prev_states = torch.stack(self.saved_states)
-        # for i in range(self.q_update_epochs):
-        #     _, state_values = self.policy.forward(prev_states)
-        #
-        #     self.policy_optimizer.zero_grad()
-        #     loss = F.mse_loss(state_values.squeeze(-1), returns)
-        #     loss.mean().backward()
-        #     self.policy_optimizer.step()
+        prev_states = torch.stack(self.saved_states)
+        for i in range(self.q_update_epochs):
+            _, state_values = self.policy.forward(prev_states)
+
+            self.policy_optimizer.zero_grad()
+            loss = F.mse_loss(state_values.squeeze(-1), returns)
+            loss.mean().backward()
+            self.policy_optimizer.step()
 
         del self.saved_actions[:]
         del self.saved_rewards[:]
-        # del self.saved_states[:]
+        del self.saved_states[:]

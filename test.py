@@ -11,13 +11,14 @@ from algorithms.traj import TrajCVPolicy
 from vis import Plotter
 
 env_name = 'CartPole-v0'
-algorithm_name = 'a2c'
+algorithm_name = 'trajcv'
 
 env = gym.make(env_name)
-seed = 23456
+seed = 227
 env.seed(seed)
 torch.manual_seed(seed)
 log_interval = 10
+lr = 1e-3
 
 state_dim = env.observation_space.shape[0]
 action_dim = env.action_space.n
@@ -26,13 +27,13 @@ print('Env Name: %s | Seed: %d | State_dim: %d | Action_dim: %d | Algo: %s '
       % (env_name, seed, state_dim, action_dim, algorithm_name))
 
 if algorithm_name == 'a2c':
-    model = A2C(state_dim, action_dim)
+    model = A2C(state_dim, action_dim, lr=lr)
 elif algorithm_name == 'trajcv':
-    model = TrajCVPolicy(state_dim, action_dim)
+    model = TrajCVPolicy(state_dim, action_dim, lr=lr)
 else:
     raise NotImplementedError('Not such algorithm.')
 
-plotter = Plotter(algorithm_name + ' plot', log_interval)
+plotter = Plotter("%s_%s_plot" % (algorithm_name, env_name), log_interval)
 
 
 def main():
