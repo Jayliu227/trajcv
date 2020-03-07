@@ -10,6 +10,7 @@ class Plotter:
         self.avg_rewards = []
 
         self.len = 0
+        self.graph = None
 
     def add_pair(self, r, avg_r):
         self.rewards.append(r)
@@ -27,7 +28,4 @@ class Plotter:
         plt.title(self.name)
         plt.xlabel('i_episodes')
         plt.ylabel('reward')
-        plt.show()
-
-    def save(self, path):
-        pass
+        plt.savefig('./%s.png' % self.name)

@@ -36,7 +36,7 @@ plotter = Plotter(algorithm_name + ' plot', log_interval)
 
 
 def main():
-    running_reward = 10
+    running_reward = 0
 
     for i_episode in range(1000):
 
@@ -50,7 +50,7 @@ def main():
             state, reward, done, _ = env.step(action)
 
             model.save_reward(reward)
-            model.save_state_action(state, action)
+            model.save_state_action(state, action, done)
 
             ep_reward += reward
 
@@ -66,10 +66,10 @@ def main():
             print('Episode {}\tLast reward: {:.2f}\tAverage reward: {:.2f}'.format(
                 i_episode, ep_reward, running_reward))
 
-        if running_reward > env.spec.reward_threshold:
-            print("Solved! Running reward is now {} and "
-                  "the last episode runs to {} time steps!".format(running_reward, t))
-            # break
+        # if running_reward > env.spec.reward_threshold:
+        #     print("Solved! Running reward is now {} and "
+        #           "the last episode runs to {} time steps!".format(running_reward, t))
+        #     # break
 
     plotter.show()
 
