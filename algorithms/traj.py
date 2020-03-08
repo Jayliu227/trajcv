@@ -81,8 +81,6 @@ class TrajCVPolicy:
         policy_losses = []
         v_losses = []
 
-        # TODO: do not use the sum from t = T, rather, use the sum from t = t + l for some smaller l
-
         for r in self.saved_rewards[::-1]:
             R = r + self.gamma * R
             returns.insert(0, R)
@@ -96,11 +94,19 @@ class TrajCVPolicy:
 
         # find advantage
         advantages = calc_gae(torch.FloatTensor(self.saved_rewards), torch.cat(self.saved_state_values))
+        advantages = (advantages - advantages.mean()) / (advantages.std() + np.finfo(np.float32).eps.item())
 
         # for i in reversed(range(1, len(advantages))):
         #     advantages[i - 1] += advantages[i]
 
-        advantages = (advantages - advantages.mean()) / (advantages.std() + np.finfo(np.float32).eps.item())
+        """
+            GAE:
+                signals = advantages
+            traj_1h:
+                signals = returns - advantages.sum()
+            traj_th:
+                signals = returns - advantages[t:].sum()
+        """
 
         signals = advantages
         # signals = returns - advantages.sum()
