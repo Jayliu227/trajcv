@@ -14,7 +14,7 @@ env_name = 'CartPole-v0'
 algorithm_name = 'trajcv'
 
 env = gym.make(env_name)
-seed = 123456
+seed = 123
 env.seed(seed)
 torch.manual_seed(seed)
 log_interval = 10
