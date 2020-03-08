@@ -15,18 +15,28 @@ SavedAction = namedtuple('SavedAction', ['log_prob', 'value'])
 
 
 class A2C:
-    def __init__(self, state_dim, action_dim, gamma=0.99, lr=1e-3):
+    def __init__(self,
+                 state_dim,
+                 action_dim,
+                 gamma=0.99,
+                 lr=1e-3,
+                 v_update_epochs=30.0,
+                 v_update_anneal=0.00,
+                 epsilon_greedy_threshold=10.0,
+                 epsilon_anneal=0.01,
+                 re_sample_batch_size=100
+                 ):
         self.gamma = gamma
 
-        self.v_update_epochs = 30.0
-        self.v_update_anneal = 0.00
+        self.v_update_epochs = v_update_epochs
+        self.v_update_anneal = v_update_anneal
 
-        self.epsilon_greedy_threshold = 10.0
-        self.epsilon_anneal = 0.01
+        self.epsilon_greedy_threshold = epsilon_greedy_threshold
+        self.epsilon_anneal = epsilon_anneal
 
         self.action_dim = action_dim
 
-        self.state_RE = RE(100)
+        self.state_RE = RE(re_sample_batch_size)
 
         self.net = PVNet(state_dim, action_dim)
         self.optimizer = optim.Adam(self.net.parameters(), lr=lr)

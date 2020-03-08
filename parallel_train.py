@@ -11,13 +11,20 @@ from algorithms.traj import TrajCVPolicy
 from algorithms.a2c import A2C
 
 log_interval = 10
+env_name = 'CartPole-v0'
+gamma = 0.99
 lr = 1e-3
+v_update_epochs = 30.0
+v_update_anneal = 0.0
+epsilon_greedy_threshold = 15.0
+epsilon_anneal = 0.05
+re_sample_batch_size = 100
 
 
 def worker(worker_id, algorithm_name, seed, return_dict):
     print('Worker %d (pid: %d) has started: algorithm_name <%s> seed <%d>.' % (
         worker_id, os.getpid(), algorithm_name, seed))
-    env = gym.make('CartPole-v0')
+    env = gym.make(env_name)
     env.seed(seed)
     torch.manual_seed(seed)
 
@@ -25,9 +32,17 @@ def worker(worker_id, algorithm_name, seed, return_dict):
     action_dim = env.action_space.n
 
     if algorithm_name == 'a2c':
-        model = A2C(state_dim, action_dim, lr=lr)
+        model = A2C(state_dim, action_dim,
+                    lr=lr, gamma=gamma,
+                    v_update_epochs=v_update_epochs, v_update_anneal=v_update_anneal,
+                    epsilon_greedy_threshold=epsilon_greedy_threshold, epsilon_anneal=epsilon_anneal,
+                    re_sample_batch_size=re_sample_batch_size)
     elif algorithm_name == 'trajcv':
-        model = TrajCVPolicy(state_dim, action_dim, lr=lr)
+        model = TrajCVPolicy(state_dim, action_dim,
+                             lr=lr, gamma=gamma,
+                             v_update_epochs=v_update_epochs, v_update_anneal=v_update_anneal,
+                             epsilon_greedy_threshold=epsilon_greedy_threshold, epsilon_anneal=epsilon_anneal,
+                             re_sample_batch_size=re_sample_batch_size)
     else:
         raise NotImplementedError('Not such algorithm.')
 
@@ -35,7 +50,7 @@ def worker(worker_id, algorithm_name, seed, return_dict):
 
     running_reward = 0
 
-    for i_episode in range(100):
+    for i_episode in range(400):
 
         state = env.reset()
         ep_reward = 0
@@ -70,6 +85,7 @@ def worker(worker_id, algorithm_name, seed, return_dict):
 
 def plot(rewards):
     x = np.array([i for i in range(len(rewards[0]))])
+    colors = ['C0', 'C1']
 
     for i in range(2):
         if i == 0:
@@ -78,20 +94,24 @@ def plot(rewards):
             rewards_i = np.array(rewards[len(rewards) // 2:])
 
         mean = rewards_i.mean(axis=0)
-        mean_itp = interp1d(x, mean, kind='quadratic', fill_value='extrapolate')
+        # mean_itp = interp1d(x, mean, kind='quadratic', fill_value='extrapolate')
+        median = np.median(rewards_i, axis=0)
 
         std = rewards_i.std(axis=0)
 
-        plt.plot(x, mean_itp(mean), lw=2)
-        plt.fill_between(x, mean_itp(mean) - std, mean_itp(mean) + std, alpha=0.3)
+        # plt.plot(x, mean_itp(mean), lw=2)
+        plt.plot(x, mean, '-', lw=2, color=colors[i])
+        plt.plot(x, median, '--', lw=2, color=colors[i])
+        # plt.fill_between(x, mean_itp(mean) - std, mean_itp(mean) + std, alpha=0.3)
+        plt.fill_between(x, mean - std, mean + std, facecolor=colors[i], alpha=0.3)
 
     plt.title('Plot of Rewards Averaged over %d Trials' % (len(rewards) // 2))
     plt.xlabel('episodes')
     plt.ylabel('rewards')
-    plt.legend(['a2c', 'trajcv-gae'])
+    plt.legend(['a2c(mean)', 'a2c(median)', 'trajcv-gae(mean)', 'trajcv-gae(median)'])
     plt.grid()
 
-    plt.savefig('./combine.png')
+    plt.savefig('./plots/%s_combine.png' % env_name, dpi=200)
     plt.show()
 
 
@@ -99,7 +119,7 @@ def main():
     manager = mp.Manager()
     return_dict = manager.dict()
 
-    seeds = [1023, 1234, 2345, 3456, 4567] * 2
+    seeds = [11, 22, 33, 44, 55] * 2
     names = []
     for i in range(5):
         names.append('trajcv')

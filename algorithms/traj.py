@@ -12,18 +12,29 @@ from .replay_buffer import RE
 
 
 class TrajCVPolicy:
-    def __init__(self, state_dim, action_dim, gamma=0.99, lr=1e-3):
-        self.gamma = gamma
-        self.v_update_epochs = 30.0
-        self.v_update_anneal = 0.00
+    def __init__(self,
+                 state_dim,
+                 action_dim,
+                 gamma=0.99,
+                 lr=1e-3,
+                 v_update_epochs=30.0,
+                 v_update_anneal=0.00,
+                 epsilon_greedy_threshold=10.0,
+                 epsilon_anneal=0.01,
+                 re_sample_batch_size=100
+                 ):
 
-        self.epsilon_greedy_threshold = 10.0
-        self.epsilon_anneal = 0.01
+        self.gamma = gamma
+        self.v_update_epochs = v_update_epochs
+        self.v_update_anneal = v_update_anneal
+
+        self.epsilon_greedy_threshold = epsilon_greedy_threshold
+        self.epsilon_anneal = epsilon_anneal
 
         self.net = PVNet(state_dim, action_dim)
         self.optimizer = optim.Adam(self.net.parameters(), lr=lr)
 
-        self.state_RE = RE(100)
+        self.state_RE = RE(re_sample_batch_size)
 
         self.saved_states = []
         self.saved_logprobs = []
@@ -85,14 +96,14 @@ class TrajCVPolicy:
 
         # find advantage
         advantages = calc_gae(torch.FloatTensor(self.saved_rewards), torch.cat(self.saved_state_values))
+
+        # for i in reversed(range(1, len(advantages))):
+        #     advantages[i - 1] += advantages[i]
+
         advantages = (advantages - advantages.mean()) / (advantages.std() + np.finfo(np.float32).eps.item())
 
-        for i in reversed(range(1, len(advantages))):
-            advantages[i - 1] += advantages[i]
-
-        signals = returns - advantages
+        signals = advantages
         # signals = returns - advantages.sum()
-        # signals = (signals - signals.mean()) / (signals.std() + np.finfo(np.float32).eps.item())
 
         for r, signal, v, log_prob in zip(returns, signals, self.saved_state_values[:-1], self.saved_logprobs):
             policy_losses.append(-signal.detach() * log_prob)

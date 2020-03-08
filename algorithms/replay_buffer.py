@@ -33,7 +33,7 @@ class RE:
     def delete_random(self, low=-1, high=-1):
         if low >= high or high == -1:
             high = self.size // 2
-            low = self.size // 4
+            low = self.size // 3
         self.delete(np.random.randint(low, high))
 
 
