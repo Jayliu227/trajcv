@@ -6,8 +6,10 @@ import torch.optim as optim
 
 from collections import namedtuple
 from torch.distributions import Categorical
+from math import ceil
 
 from .models import PVNet
+from .replay_buffer import RE
 
 SavedAction = namedtuple('SavedAction', ['log_prob', 'value'])
 
@@ -15,25 +17,39 @@ SavedAction = namedtuple('SavedAction', ['log_prob', 'value'])
 class A2C:
     def __init__(self, state_dim, action_dim, gamma=0.99, lr=1e-3):
         self.gamma = gamma
-        self.q_update_epochs = 100
 
-        self.policy = PVNet(state_dim, action_dim)
-        self.policy_optimizer = optim.Adam(self.policy.parameters(), lr=lr)
+        self.v_update_epochs = 30.0
+        self.v_update_anneal = 0.00
+
+        self.epsilon_greedy_threshold = 10.0
+        self.epsilon_anneal = 0.01
+
+        self.action_dim = action_dim
+
+        self.state_RE = RE(100)
+
+        self.net = PVNet(state_dim, action_dim)
+        self.optimizer = optim.Adam(self.net.parameters(), lr=lr)
 
         self.saved_actions = []
         self.saved_rewards = []
-        # self.saved_states = []
+        self.saved_states = []
 
     def select_action(self, s):
         s = torch.from_numpy(s).float()
-        action_prob, state_value = self.policy.forward(s)
+        action_prob, state_value = self.net.forward(s)
 
         m = Categorical(action_prob)
-        action = m.sample()
 
-        self.saved_actions.append(SavedAction(m.log_prob(action), state_value))
+        if np.random.randint(100) < ceil(self.epsilon_greedy_threshold):
+            a = torch.IntTensor([np.random.randint(self.action_dim)]).squeeze(-1)
+        else:
+            a = m.sample()
+        # a = m.sample()
 
-        return action.item()
+        self.saved_actions.append(SavedAction(m.log_prob(a), state_value))
+
+        return a.item()
 
     def save_reward(self, r):
         self.saved_rewards.append(r)
@@ -55,29 +71,36 @@ class A2C:
         returns = torch.tensor(returns)
         returns = (returns - returns.mean()) / (returns.std() + np.finfo(np.float32).eps.item())
 
+        for (s, v) in zip(self.saved_states, returns):
+            self.state_RE.add(s, v)
+
         for (log_prob, state_value), R in zip(self.saved_actions, returns):
             advantage = R - state_value.item()
-
             policy_losses.append(-log_prob * advantage)
-
             value_losses.append(F.smooth_l1_loss(state_value, torch.tensor([R])))
 
-        self.policy_optimizer.zero_grad()
+        self.optimizer.zero_grad()
 
         loss = torch.stack(policy_losses).sum() + torch.stack(value_losses).sum()
         loss.backward()
 
-        self.policy_optimizer.step()
+        self.optimizer.step()
 
-        prev_states = torch.stack(self.saved_states)
-        for i in range(self.q_update_epochs):
-            _, state_values = self.policy.forward(prev_states)
+        for i in range(ceil(self.v_update_epochs)):
+            old_states, old_values = self.state_RE.sample()
+            old_states, old_values = torch.stack(old_states), torch.stack(old_values)
 
-            self.policy_optimizer.zero_grad()
-            loss = F.mse_loss(state_values.squeeze(-1), returns)
+            state_values = self.net.calc_v(old_states)
+            loss = F.mse_loss(old_values, state_values.squeeze(-1))
+            self.optimizer.zero_grad()
             loss.mean().backward()
-            self.policy_optimizer.step()
+            self.optimizer.step()
 
         del self.saved_actions[:]
         del self.saved_rewards[:]
         del self.saved_states[:]
+
+        self.state_RE.delete_random()
+        self.epsilon_greedy_threshold = max(0, self.epsilon_greedy_threshold - self.epsilon_anneal)
+        self.v_update_epochs = max(0, self.v_update_epochs - self.v_update_anneal)
+

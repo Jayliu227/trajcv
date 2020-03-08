@@ -9,10 +9,10 @@ class PVNet(nn.Module):
         super(PVNet, self).__init__()
 
         self.affine1 = nn.Linear(state_dim, 64)
-        self.affine2 = nn.Linear(64, 64)
+        self.affine2 = nn.Linear(64, 128)
 
-        self.action_head = nn.Linear(64, action_dim)
-        self.value_head = nn.Linear(64, 1)
+        self.action_head = nn.Linear(128, action_dim)
+        self.value_head = nn.Linear(128, 1)
 
     def forward(self, x):
         x = F.relu(self.affine1(x))
@@ -22,6 +22,14 @@ class PVNet(nn.Module):
         state_values = self.value_head(x)
 
         return action_probs, state_values
+
+    def calc_v(self, x):
+        x = F.relu(self.affine1(x))
+        x = F.relu(self.affine2(x))
+
+        state_values = self.value_head(x)
+
+        return state_values
 
 
 class PQNet(nn.Module):

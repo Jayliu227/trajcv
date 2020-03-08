@@ -14,7 +14,7 @@ env_name = 'CartPole-v0'
 algorithm_name = 'trajcv'
 
 env = gym.make(env_name)
-seed = 227
+seed = 123456
 env.seed(seed)
 torch.manual_seed(seed)
 log_interval = 10
@@ -39,7 +39,7 @@ plotter = Plotter("%s_%s_plot" % (algorithm_name, env_name), log_interval)
 def main():
     running_reward = 0
 
-    for i_episode in range(1000):
+    for i_episode in range(501):
 
         state = env.reset()
         ep_reward = 0
@@ -71,8 +71,7 @@ def main():
         #     print("Solved! Running reward is now {} and "
         #           "the last episode runs to {} time steps!".format(running_reward, t))
         #     # break
-
-    plotter.show()
+        plotter.show()
 
 
 if __name__ == '__main__':
