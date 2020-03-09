@@ -28,4 +28,4 @@ class Plotter:
         plt.title(self.name)
         plt.xlabel('i_episodes')
         plt.ylabel('reward')
-        plt.savefig('./plots/%s.png' % self.name)
+        plt.savefig('./plots/single_tests/%s.png' % self.name)

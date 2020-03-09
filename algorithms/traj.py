@@ -7,7 +7,7 @@ import numpy as np
 from math import ceil
 from torch.distributions import Categorical
 from .gae import calc_gae
-from .models import PVNet
+from .models import PQNet
 from .replay_buffer import RE
 
 
@@ -31,7 +31,7 @@ class TrajCVPolicy:
         self.epsilon_greedy_threshold = epsilon_greedy_threshold
         self.epsilon_anneal = epsilon_anneal
 
-        self.net = PVNet(state_dim, action_dim)
+        self.net = PQNet(state_dim, action_dim)
         self.optimizer = optim.Adam(self.net.parameters(), lr=lr)
 
         self.state_RE = RE(re_sample_batch_size)
@@ -40,13 +40,15 @@ class TrajCVPolicy:
         self.saved_logprobs = []
         self.saved_rewards = []
         self.saved_state_values = []
+        self.saved_qvalues = []
+        self.saved_actions = []
 
         self.action_dim = action_dim
 
     def select_action(self, s):
         """ take in the raw representation of state from the env and return an action """
         s = torch.from_numpy(s).float()
-        action_prob, state_value = self.net.forward(s)
+        action_prob = self.net.calc_policy(s)
 
         m = Categorical(action_prob)
 
@@ -57,9 +59,14 @@ class TrajCVPolicy:
             a = m.sample()
         # a = m.sample()
 
-        # save the v
-        self.saved_state_values.append(state_value)
-        # save the log probability of the action
+        all_states = torch.stack([s] * self.action_dim)
+        all_actions = torch.FloatTensor([[i] for i in range(self.action_dim)])
+
+        all_qvalues = self.net.calc_q(all_states, all_actions).squeeze(-1)
+        expected_qvalue = (all_qvalues * action_prob).sum()
+
+        self.saved_state_values.append(expected_qvalue)
+        self.saved_qvalues.append(all_qvalues[a.item()])
         self.saved_logprobs.append(m.log_prob(a))
 
         return a.item()
@@ -69,10 +76,8 @@ class TrajCVPolicy:
 
     def save_state_action(self, s, a, done):
         s = torch.from_numpy(s).float()
+        self.saved_actions.append(torch.FloatTensor([a]))
         self.saved_states.append(s)
-        if done:
-            # to save the v value for the last state as 0
-            self.saved_state_values.append(torch.FloatTensor([0]))
 
     def finish_episode(self):
         """ called at the end of each trajectory """
@@ -89,31 +94,22 @@ class TrajCVPolicy:
         returns = (returns - returns.mean()) / (returns.std() + np.finfo(np.float32).eps.item())
 
         # add state and value pairs into the replay buffer
-        for (s, v) in zip(self.saved_states, returns):
-            self.state_RE.add(s, v)
+        for (s, a, q) in zip(self.saved_states, self.saved_actions, returns):
+            self.state_RE.add((s, a), q)
 
         # find advantage
-        advantages = calc_gae(torch.FloatTensor(self.saved_rewards), torch.cat(self.saved_state_values))
+        advantages = torch.FloatTensor(self.saved_qvalues) - torch.FloatTensor(self.saved_state_values)
         advantages = (advantages - advantages.mean()) / (advantages.std() + np.finfo(np.float32).eps.item())
 
-        # for i in reversed(range(1, len(advantages))):
-        #     advantages[i - 1] += advantages[i]
+        for i in reversed(range(1, len(self.saved_qvalues))):
+            advantages[i - 1] += advantages[i]
 
-        """
-            GAE:
-                signals = advantages
-            traj_1h:
-                signals = returns - advantages.sum()
-            traj_th:
-                signals = returns - advantages[t:].sum()
-        """
+        signals = returns - advantages
 
-        signals = advantages
-        # signals = returns - advantages.sum()
-
-        for r, signal, v, log_prob in zip(returns, signals, self.saved_state_values[:-1], self.saved_logprobs):
+        for r, q, signal, log_prob in zip(returns, self.saved_qvalues, signals, self.saved_logprobs):
+            # signal = r - advantage
             policy_losses.append(-signal.detach() * log_prob)
-            v_losses.append(F.smooth_l1_loss(v.squeeze(-1), r))
+            v_losses.append(F.smooth_l1_loss(q.squeeze(-1), r))
 
         self.optimizer.zero_grad()
 
@@ -125,15 +121,19 @@ class TrajCVPolicy:
 
         # optimize the v function
         for i in range(ceil(self.v_update_epochs)):
-            old_states, old_values = self.state_RE.sample()
-            old_states, old_values = torch.stack(old_states), torch.stack(old_values)
+            old_state_action_pairs, old_values = self.state_RE.sample()
+            old_states, old_actions = map(list, zip(*old_state_action_pairs))
+            old_states, old_actions, old_values = \
+                torch.stack(old_states), torch.stack(old_actions), torch.stack(old_values)
 
-            state_values = self.net.calc_v(old_states)
-            loss = F.mse_loss(old_values, state_values.squeeze(-1))
+            q_values = self.net.calc_q(old_states, old_actions)
+            loss = F.mse_loss(old_values, q_values.squeeze(-1))
             self.optimizer.zero_grad()
             loss.mean().backward()
             self.optimizer.step()
 
+        del self.saved_qvalues[:]
+        del self.saved_actions[:]
         del self.saved_logprobs[:]
         del self.saved_rewards[:]
         del self.saved_state_values[:]
@@ -142,4 +142,3 @@ class TrajCVPolicy:
         self.state_RE.delete_random()
         self.epsilon_greedy_threshold = max(0, self.epsilon_greedy_threshold - self.epsilon_anneal)
         self.v_update_epochs = max(0, self.v_update_epochs - self.v_update_anneal)
-

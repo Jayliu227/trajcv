@@ -17,7 +17,7 @@ lr = 1e-3
 v_update_epochs = 30.0
 v_update_anneal = 0.0
 epsilon_greedy_threshold = 15.0
-epsilon_anneal = 0.05
+epsilon_anneal = 0.03
 re_sample_batch_size = 100
 
 
@@ -50,7 +50,7 @@ def worker(worker_id, algorithm_name, seed, return_dict):
 
     running_reward = 0
 
-    for i_episode in range(400):
+    for i_episode in range(450):
 
         state = env.reset()
         ep_reward = 0
@@ -101,7 +101,7 @@ def plot(rewards):
 
         # plt.plot(x, mean_itp(mean), lw=2)
         plt.plot(x, mean, '-', lw=2, color=colors[i])
-        plt.plot(x, median, '--', lw=2, color=colors[i])
+        plt.plot(x, median, ':', lw=2, color=colors[i])
         # plt.fill_between(x, mean_itp(mean) - std, mean_itp(mean) + std, alpha=0.3)
         plt.fill_between(x, mean - std, mean + std, facecolor=colors[i], alpha=0.3)
 
@@ -111,7 +111,7 @@ def plot(rewards):
     plt.legend(['a2c(mean)', 'a2c(median)', 'trajcv-gae(mean)', 'trajcv-gae(median)'])
     plt.grid()
 
-    plt.savefig('./plots/%s_combine.png' % env_name, dpi=200)
+    plt.savefig('./plots/q/%s_combine.png' % env_name, dpi=200)
     plt.show()
 
 
@@ -119,7 +119,7 @@ def main():
     manager = mp.Manager()
     return_dict = manager.dict()
 
-    seeds = [11, 22, 33, 44, 55] * 2
+    seeds = [1110, 2220, 3330, 4440, 5550] * 2
     names = []
     for i in range(5):
         names.append('trajcv')
